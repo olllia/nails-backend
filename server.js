@@ -140,9 +140,17 @@ app.get("/appointments/:userId", (req, res) => {
 });
 
 // --- GET: все услуги ---
+
 app.get("/services", (req, res) => {
-  db.all("SELECT * FROM services", [], (err, rows) => res.json(rows));
+  const services = [
+    { id: 1, name: "Обработка", price: 1000, desc: "Гигиенический маникюр без покрытия" },
+    { id: 2, name: "Комплекс #1", price: 2000, desc: "Маникюр, покрытие, ремонт, простой дизайн" },
+    { id: 3, name: "Наращивание", price: 3000, desc: "Средняя длина, лёгкий дизайн +500₽ макс длина" },
+    { id: 4, name: "Комплекс #2", price: 2500, desc: "Коррекция, ремонт, лёгкий дизайн" }
+  ];
+  res.json(services);
 });
+
 
 // --- POST: добавить услугу (админ) ---
 app.post("/services", (req, res) => {
