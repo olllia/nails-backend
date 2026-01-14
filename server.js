@@ -16,33 +16,40 @@ const BOT_TOKEN = "8070453918:AAG-K_RLvFZmLvy6dcZ-jjFsrtNLhG9DiOk"; // Вста�
 
 // --- БАЗА ДАННЫХ ---
 db.serialize(() => {
-  // Слоты
+  // 1. Создаем таблицу, если её вообще нет
+  db.run(`CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot_id INTEGER,
+    user_id INTEGER,
+    user_name TEXT,
+    comment TEXT,
+    status TEXT DEFAULT 'active'
+  )`);
+
+  // 2. Добавляем недостающие колонки по одной (если их нет)
+  const columns = [
+    { name: "services", type: "TEXT" },
+    { name: "total_price", type: "INTEGER" }
+  ];
+
+  columns.forEach(col => {
+    db.run(`ALTER TABLE appointments ADD COLUMN ${col.name} ${col.type}`, (err) => {
+      if (err) {
+        // Если ошибка — значит колонка уже есть, это нормально, просто идем дальше
+        console.log(`Колонка ${col.name} уже существует.`);
+      } else {
+        console.log(`Колонка ${col.name} успешно добавлена!`);
+      }
+    });
+  });
+
+  // Не забываем про таблицу слотов
   db.run(`CREATE TABLE IF NOT EXISTS slots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT,
     time TEXT,
     booked INTEGER DEFAULT 0
   )`);
-
-  // Записи (с проверкой на существование колонки services)
-  db.run(`CREATE TABLE IF NOT EXISTS appointments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slot_id INTEGER,
-    user_id INTEGER,
-    user_name TEXT,
-    total_price INTEGER,
-    services TEXT,
-    comment TEXT,
-    status TEXT DEFAULT 'active'
-  )`, (err) => {
-    if (!err) {
-      // Если таблица уже была, принудительно пробуем добавить колонку services
-      // SQLite проигнорирует это, если колонка уже есть
-      db.run(`ALTER TABLE appointments ADD COLUMN services TEXT`, (alterErr) => {
-        if (alterErr) console.log("Колонка services уже существует или ошибка");
-      });
-    }
-  });
 });
 
 // Функция отправки уведомления мастеру
