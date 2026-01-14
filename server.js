@@ -8,8 +8,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const db = new sqlite3.Database("./database.db");
-
+const db = new sqlite3.Database("./nails_v3.db"); // НОВОЕ ИМЯ ФАЙЛА - это решит проблему с колонками
 // --- НАСТРОЙКИ ---
 const ADMIN_ID = 381232429; 
 const BOT_TOKEN = "8070453918:AAG-K_RLvFZmLvy6dcZ-jjFsrtNLhG9DiOk"; // Вставь сюда токен от BotFather
@@ -137,6 +136,24 @@ app.get("/services", (req, res) => {
     { id: 2, name: "Комплекс #1", price: 2000, desc: "Маникюр + покрытие + дизайн" },
     { id: 3, name: "Наращивание", price: 3000, desc: "Средняя длина" }
   ]);
+});
+
+// МАССОВОЕ ДОБАВЛЕНИЕ СЛОТОВ
+app.post("/slots/bulk", (req, res) => {
+  const { slots } = req.body; // Ожидаем массив [{date, time}, ...]
+  if (!slots || !Array.isArray(slots)) return res.sendStatus(400);
+
+  const stmt = db.prepare("INSERT INTO slots (date, time) VALUES (?, ?)");
+  
+  db.serialize(() => {
+    db.run("BEGIN TRANSACTION");
+    slots.forEach(s => stmt.run(s.date, s.time));
+    db.run("COMMIT", (err) => {
+      if (err) return res.status(500).json(err);
+      res.json({ success: true, count: slots.length });
+    });
+  });
+  stmt.finalize();
 });
 
 const PORT = process.env.PORT || 3000;
