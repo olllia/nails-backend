@@ -53,12 +53,13 @@ app.get("/slots", (req, res) => {
 });
 
 // --- POST: добавить слот (админ) ---
+// ⚠️ временно разрешаем все userId
 app.post("/slots", (req, res) => {
   const { date, time, userId } = req.body;
-  if (userId !== ADMIN_ID) return res.sendStatus(403);
-
+  // if (userId !== ADMIN_ID) return res.sendStatus(403); // закомментируем
   db.run("INSERT INTO slots (date, time) VALUES (?, ?)", [date, time], () => res.sendStatus(200));
 });
+
 
 // --- POST: записаться на слот ---
 app.post("/book", (req, res) => {
