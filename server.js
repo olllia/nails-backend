@@ -5,19 +5,17 @@ const cors = require("cors");
 const axios = require("axios");
 
 const app = express();
-app.use(cors());
 app.use(bodyParser.json());
+app.use(cors({
+  methods: ['GET', 'POST', 'DELETE', 'UPDATE', 'PUT', 'PATCH']
+}));
 
-// Переходим на v5, чтобы структура создалась с нуля без ошибок
-const db = new sqlite3.Database("./nails_v5.db");
+const db = new sqlite3.Database("./nails_v6.db");
 
-// --- НАСТРОЙКИ ---
 const ADMIN_ID = 381232429; 
 const BOT_TOKEN = "8070453918:AAG-K_RLvFZmLvy6dcZ-jjFsrtNLhG9DiOk";
 
-// --- БАЗА ДАННЫХ ---
 db.serialize(() => {
-  // Таблица слотов с UNIQUE — защита от создания двух одинаковых окошек
   db.run(`CREATE TABLE IF NOT EXISTS slots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT,
@@ -26,12 +24,13 @@ db.serialize(() => {
     UNIQUE(date, time)
   )`);
 
-  // Таблица записей с уже включенными полями услуг и цены
+  // Добавил поле username в таблицу записей
   db.run(`CREATE TABLE IF NOT EXISTS appointments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slot_id INTEGER,
     user_id INTEGER,
     user_name TEXT,
+    username TEXT, 
     services TEXT,
     total_price INTEGER,
     comment TEXT,
@@ -39,17 +38,12 @@ db.serialize(() => {
   )`);
 });
 
-// Функция уведомления мастера
 async function sendAdminNotification(msg) {
   try {
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
     await axios.post(url, { chat_id: ADMIN_ID, text: msg, parse_mode: "HTML" });
-  } catch (e) {
-    console.error("Ошибка ТГ уведомления:", e.message);
-  }
+  } catch (e) { console.error("Ошибка уведомления:", e.message); }
 }
-
-// --- API ЭНДПОИНТЫ ---
 
 // 1. Свободные слоты
 app.get("/slots", (req, res) => {
@@ -59,96 +53,78 @@ app.get("/slots", (req, res) => {
   });
 });
 
-// 2. Массовое добавление с защитой от дублей
+// 2. Добавление слотов
 app.post("/slots/bulk", (req, res) => {
   const { slots } = req.body;
   if (!slots || !Array.isArray(slots)) return res.sendStatus(400);
-
-  // INSERT OR IGNORE пропустит те даты/время, которые уже есть в базе
   const stmt = db.prepare("INSERT OR IGNORE INTO slots (date, time) VALUES (?, ?)");
-  
   db.serialize(() => {
     db.run("BEGIN TRANSACTION");
     slots.forEach(s => stmt.run(s.date, s.time));
     db.run("COMMIT", (err) => {
       if (err) return res.status(500).json(err);
-      res.json({ success: true, count: slots.length });
+      res.json({ success: true });
     });
   });
   stmt.finalize();
 });
 
-// 3. Запись (Бронирование)
+// 4. Запись (с передачей username)
 app.post("/book", (req, res) => {
-  const { slotId, userId, userName, services, totalPrice, comment } = req.body;
+  const { slotId, userId, userName, username, services, totalPrice, comment } = req.body;
   const servicesString = Array.isArray(services) ? services.join(", ") : services;
 
-  db.run(
-    "UPDATE slots SET booked = 1 WHERE id = ? AND booked = 0",
-    [slotId],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      if (this.changes === 0) return res.status(400).json({ error: "Слот уже занят" });
+  db.run("UPDATE slots SET booked = 1 WHERE id = ? AND booked = 0", [slotId], function(err) {
+    if (err || this.changes === 0) return res.status(400).json({ error: "Занято" });
 
-      db.run(
-        "INSERT INTO appointments (slot_id, user_id, user_name, services, total_price, comment) VALUES (?, ?, ?, ?, ?, ?)",
-        [slotId, userId, userName, servicesString, totalPrice, comment],
-        function(err2) {
-          if (err2) return res.status(500).json({ error: err2.message });
-
-          db.get("SELECT date, time FROM slots WHERE id = ?", [slotId], (err3, slot) => {
-            const message = `🔔 <b>Новая запись!</b>\n\n👤 Клиент: ${userName}\n📅 Дата: ${slot.date}\n⏰ Время: ${slot.time}\n💅 Услуги: ${servicesString}\n💰 Итого: ${totalPrice}₽\n📝 Коммент: ${comment || '-'}`;
-            sendAdminNotification(message);
-          });
-
-          res.json({ success: true });
-        }
-      );
-    }
-  );
-});
-
-// 4. Аналитика для Насти (Выручка и средний чек)
-app.get("/stats", (req, res) => {
-  db.get(`
-    SELECT 
-      SUM(total_price) as revenue, 
-      COUNT(id) as count,
-      AVG(total_price) as avg_check 
-    FROM appointments
-  `, (err, row) => {
-    if (err) return res.status(500).json(err);
-    res.json({
-      revenue: row.revenue || 0,
-      count: row.count || 0,
-      avg: Math.round(row.avg_check || 0)
-    });
+    db.run(
+      "INSERT INTO appointments (slot_id, user_id, user_name, username, services, total_price, comment) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [slotId, userId, userName, username, servicesString, totalPrice, comment],
+      function(err2) {
+        db.get("SELECT date, time FROM slots WHERE id = ?", [slotId], (err3, slot) => {
+          const contact = username ? `@${username}` : userName;
+          const message = `🔔 <b>Запись к NNAILLSS!</b>\n\n👤 Клиент: ${contact}\n📅 Дата: ${slot.date}\n⏰ Время: ${slot.time}\n💅 Услуги: ${servicesString}\n💰 Сумма: ${totalPrice}₽`;
+          sendAdminNotification(message);
+        });
+        res.json({ success: true });
+      }
+    );
   });
 });
 
-// 5. Все записи для админки
-app.get("/appointments/:userId", (req, res) => {
-  if (parseInt(req.params.userId) !== ADMIN_ID) return res.sendStatus(403);
-
+// 5. НОВОЕ: Все записи (для календаря мастера)
+// Убрал проверку userId в пути, чтобы фронтенду было проще запрашивать /appointments/all
+app.get("/appointments/all", (req, res) => {
   db.all(`
     SELECT a.*, s.date, s.time
     FROM appointments a
     JOIN slots s ON s.id = a.slot_id
-    ORDER BY s.date DESC, s.time DESC
+    ORDER BY s.date ASC, s.time ASC
   `, [], (err, rows) => {
     if (err) return res.status(500).json(err);
     res.json(rows || []);
   });
 });
 
-// 6. Услуги
+// 6. Услуги (Добавил еще для ассортимента)
 app.get("/services", (req, res) => {
   res.json([
-    { id: 1, name: "Обработка", price: 1000, desc: "Маникюр без покрытия" },
-    { id: 2, name: "Комплекс #1", price: 2500, desc: "Маникюр + покрытие" },
-    { id: 3, name: "Наращивание", price: 3500, desc: "Средняя длина" }
+    { id: 1, name: "Маникюр (обработка)", price: 1200 },
+    { id: 2, name: "Покрытие Shellac", price: 1800 },
+    { id: 3, name: "Укрепление гелем", price: 500 },
+    { id: 4, name: "Дизайн (все ногти)", price: 800 },
+    { id: 5, name: "Снятие чужое", price: 300 }
   ]);
 });
 
+// Добавь это в конец своего server.js перед app.listen
+app.delete("/slots/:id", (req, res) => {
+  const { id } = req.params;
+  db.run("DELETE FROM slots WHERE id = ?", [id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Backend v5 live on ${PORT}`));
+app.listen(PORT, () => console.log(`Backend v6 live on ${PORT}`));
