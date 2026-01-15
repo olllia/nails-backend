@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(cors());
 
 // Используем твою базу v6, чтобы сохранить преемственность
-const db = new sqlite3.Database("./nails_v6.db");
+const db = new sqlite3.Database("./nails_v7.db");
 
 const ADMIN_ID = 381232429; 
 const BOT_TOKEN = "8070453918:AAG-K_RLvFZmLvy6dcZ-jjFsrtNLhG9DiOk";
@@ -24,6 +24,7 @@ db.serialize(() => {
   )`);
 
   // Записи
+  // Записи (теперь с комментарием!)
   db.run(`CREATE TABLE IF NOT EXISTS appointments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slot_id INTEGER,
@@ -33,7 +34,8 @@ db.serialize(() => {
     services TEXT,
     total_price INTEGER,
     date TEXT,
-    time TEXT
+    time TEXT,
+    comment TEXT
   )`);
 });
 
@@ -97,22 +99,31 @@ app.delete("/slots/:id", (req, res) => {
 
 // 5. Запись (Booking)
 app.post("/book", (req, res) => {
-  const { slotId, userId, userName, username, services, totalPrice } = req.body;
+  // Достаем comment из запроса
+  const { slotId, userId, userName, username, services, totalPrice, comment } = req.body;
   const servicesString = Array.isArray(services) ? services.join(", ") : services;
 
   db.get("SELECT date, time FROM slots WHERE id = ? AND booked = 0", [slotId], (err, slot) => {
     if (err || !slot) return res.status(400).json({ error: "Это время уже занято" });
 
+    // Сохраняем в базу вместе с комментарием
     db.run(
-      "INSERT INTO appointments (slot_id, user_id, user_name, username, services, total_price, date, time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [slotId, userId, userName, username || '', servicesString, totalPrice, slot.date, slot.time],
+      "INSERT INTO appointments (slot_id, user_id, user_name, username, services, total_price, date, time, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [slotId, userId, userName, username || '', servicesString, totalPrice, slot.date, slot.time, comment || ''],
       function(err2) {
         if (err2) return res.status(500).json({ error: err2.message });
 
         db.run("UPDATE slots SET booked = 1 WHERE id = ?", [slotId]);
 
         const contact = username ? `@${username}` : userName;
-        const message = `🔔 <b>Новая запись!</b>\n\n👤 Клиент: ${contact}\n📅 Дата: ${slot.date}\n⏰ Время: ${slot.time}\n💅 Услуги: ${servicesString}\n💰 Итог: ${totalPrice}₽`;
+        // Добавляем комментарий в текст уведомления
+        let message = `🔔 <b>Новая запись!</b>\n\n`;
+        message += `👤 Клиент: ${contact}\n`;
+        message += `📅 Дата: ${slot.date}\n`;
+        message += `⏰ Время: ${slot.time}\n`;
+        message += `💅 Услуги: ${servicesString}\n`;
+        if (comment) message += `💬 Коммент: ${comment}\n`; // Если есть коммент — пишем его
+        message += `💰 Итог: ${totalPrice}₽`;
         
         sendAdminNotification(message);
         res.json({ success: true });
