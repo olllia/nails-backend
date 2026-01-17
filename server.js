@@ -2,6 +2,7 @@ const express = require("express");
 const { Pool } = require("pg");
 const cors = require("cors");
 const axios = require("axios");
+const formData = new FormData();
 
 const app = express();
 // Увеличиваем лимит, чтобы принимать фото в base64
@@ -23,6 +24,7 @@ const pool = new Pool({
 // Создание таблиц при запуске
 const initDB = async () => {
   try {
+    // Создаем таблицы
     await pool.query(`
       CREATE TABLE IF NOT EXISTS slots (
         id SERIAL PRIMARY KEY,
@@ -41,13 +43,14 @@ const initDB = async () => {
         total_price INTEGER,
         date TEXT,
         time TEXT,
-        comment TEXT
+        comment TEXT,
+        photo_data TEXT
       );
     `);
-    console.log("✅ База данных Supabase готова к работе");
-  } catch (err) {
-    console.error("❌ Ошибка инициализации БД:", err);
-  }
+    // На всякий случай добавляем колонку, если таблица уже была
+    await pool.query(`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS photo_data TEXT;`);
+    console.log("✅ База данных готова и обновлена");
+  } catch (err) { console.error("❌ Ошибка БД:", err); }
 };
 initDB();
 
@@ -56,7 +59,6 @@ async function sendAdminNotification(msg, photoBase64) {
   try {
     if (photoBase64) {
       // Если есть фото, используем sendPhoto
-      const formData = new FormData();
       // Превращаем base64 обратно в бинарный файл для Telegram API
       const base64Data = photoBase64.replace(/^data:image\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, 'base64');
