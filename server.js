@@ -13,7 +13,10 @@ const BOT_TOKEN = "8070453918:AAG-K_RLvFZmLvy6dcZ-jjFsrtNLhG9DiOk";
 // Подключение через переменную, которую ты только что создала в Render
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: {
+    rejectUnauthorized: false // Это обязательно для Render + Supabase
+  },
+  connectionTimeoutMillis: 5000 // Чтобы не висело вечно, если нет связи
 });
 
 // Создание таблиц при запуске
